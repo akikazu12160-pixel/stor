@@ -1,112 +1,88 @@
 <?php
+// セッションスタート
 session_start();
-require "data.php";
+// データベース接続--------------------------------------------------
+$mysqli = new mysqli("localhost", "ei2435", "ei2435@alumni.hamako-ths.ed.jp", "ei2435");
+if (mysqli_connect_errno()) {
+    die("MySQL connection error: " . mysqli_connect_error());
+}
 
-$product_id = (int)($_GET["product_id"] ?? $_POST["product_id"] ?? 0);
+// URLから商品IDを受け取る
+$product_id = (int)($_GET["product_id"] ?? 0);
 
-if ($product_id <= 0) {
+// 商品IDが正しく指定されているか確認する
+if($product_id <= 0) {
     die("商品が指定されていません。");
 }
 
-// 商品情報の取得
-$stmt = $mysqli->prepare("SELECT * FROM products WHERE prodcut_id = ?");
-$stmt->bind_param("i", $product_id);
-$stmt->execute();
-$product = $stmt->get_result()->fetch_assoc();
-$stmt->close();
+// SQLの実行--------------------------------------------------------
+$sql = "SELECT * FROM products WHERE product_id=" . $product_id;
+if (!($result = $mysqli->query($sql))) {
+    die("SQL error: " . $mysqli->error);
+}
 
-if (!$product) {
+// 実行結果を取り出す
+$product = $result->fetch_array(MYSQLI_ASSOC);
+
+// 商品が見つからなかった場合
+if(!$product) {
     die("商品が見つかりません。");
 }
-
-$error = null;
-
-// ---------- カート追加処理（POST） ----------
-if ($_SERVER["REQUEST_METHOD"] === "POST") {
-
-    if (!isset($_SESSION["user_id"])) {
-        header("Location: login.php");
-        exit;
-    }
-
-    $quantity = (int)($_POST["quantity"] ?? 0);
-    $user_id  = (int)$_SESSION["user_id"];
-
-    if ($quantity <= 0 || $quantity > $product["stock"]) {
-        $error = "数量が不正か、在庫数を超えています。";
-    } else {
-        $stmt = $mysqli->prepare("SELECT cart_id, quantity FROM cart_items WHERE user_id = ? AND product_id = ?");
-        $stmt->bind_param("ii", $user_id, $product_id);
-        $stmt->execute();
-        $existing = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-
-        if ($existing) {
-            $new_qty = $existing["quantity"] + $quantity;
-            $stmt = $mysqli->prepare("UPDATE cart_items SET quantity = ? WHERE cart_id = ?");
-            $stmt->bind_param("ii", $new_qty, $existing["cart_id"]);
-            $stmt->execute();
-            $stmt->close();
-        } else {
-            $stmt = $mysqli->prepare("INSERT INTO cart_items (user_id, product_id, quantity) VALUES (?, ?, ?)");
-            $stmt->bind_param("iii", $user_id, $product_id, $quantity);
-            $stmt->execute();
-            $stmt->close();
-        }
-
-        $_SESSION["flash_message"] = htmlspecialchars($product["name"]) . "をカートに追加しました。";
-        header("Location: store.php");
-        exit;
-    }
-}
 ?>
+
+<!--商品情報の表示-->
 
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title><?= htmlspecialchars($product["name"]) ?> - STORE</title>
+<title>商品詳細</title>
 </head>
+
 <body>
+<h2>商品詳細</h2>
 
-<p><a href="store.php">&laquo; 一覧に戻る</a></p>
+<!--商品名-->
+<div class="product-name">
+    <h3><?= htmlspecialchars($product["name"]) ?></h3>
+</div>
 
-<h1><?= htmlspecialchars($product["name"]) ?></h1>
+<!--商品画像-->
+<div class="product-image">
+    <!--あとから商品画像を入れる-->
+</div>
 
-<?php if (!empty($product["image"])): ?>
-<p><img src="<?= htmlspecialchars($product["image"]) ?>" alt="<?= htmlspecialchars($product["name"]) ?>" width="200"></p>
-<?php endif; ?>
+<!--商品説明-->
+<div class="product-description">
+    <h3>説明</h3>
+    <p><?= htmlspecialchars($product["description"]) ?></p>
+</div>
 
-<table border="1">
-<tr><th>説明</th><td><?= nl2br(htmlspecialchars($product["description"])) ?></td></tr>
-<tr><th>価格</th><td><?= number_format($product["price"]) ?>円</td></tr>
-<tr><th>在庫</th><td><?= $product["stock"] > 0 ? $product["stock"] . "個" : "売り切れ" ?></td></tr>
-</table>
+<!--商品価格-->
+<div class="product-price">
+    <h3>価格</h3>
+    <p><?= number_format($product["price"]) ?>円</p>
+</div>
 
-<?php if ($error): ?>
-<p style="color: red;"><?= htmlspecialchars($error) ?></p>
-<?php endif; ?>
+<!--商品在庫-->
+<div class="product-stock">
+    <h3>在庫</h3>
+    <p><?= $product["stock"] ?>個</p>
+</div>
 
-<?php if ($product["stock"] > 0): ?>
-
-    <?php if (isset($_SESSION["user_id"])): ?>
-    <form method="post" action="select.php?product_id=<?= $product["prodcut_id"] ?>">
-        <input type="hidden" name="product_id" value="<?= $product["prodcut_id"] ?>">
-        数量:
-        <select name="quantity">
-            <?php for ($i = 1; $i <= min(10, $product["stock"]); $i++): ?>
-            <option value="<?= $i ?>"><?= $i ?></option>
-            <?php endfor; ?>
-        </select>
-        <button type="submit">カートに入れる</button>
+<!--商品一覧に戻る-->
+<div class="product-buttons">
+    <form action="store.php" method="get">
+        <button type="submit">商品一覧に戻る</button>
     </form>
-    <?php else: ?>
-    <p><a href="login.php">ログインして注文する</a></p>
-    <?php endif; ?>
-
-<?php else: ?>
-<p>この商品は現在売り切れです。</p>
-<?php endif; ?>
-
+</div>
 </body>
 </html>
+
+<?php
+// データベースの終了処理---------------------------------------------
+// 結果セット$resultを解放する。
+$result->close();
+// データベース$データベース$mysqliとの接続を閉じます。
+$mysqli->close();
+?>
